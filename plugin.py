@@ -90,11 +90,11 @@ class ScheduleConfig(PluginConfigBase):
     )
     broadcast_time: str = Field(
         default="08:00",
-        description="每日播报时间。",
+        description="每日播报时间，可填多个，用逗号分隔。",
         json_schema_extra={
-            "hint": "格式 HH:MM，24小时制。",
+            "hint": "格式 HH:MM，24小时制；多个时间用逗号分隔，如 06:00,22:20。",
             "label": "播报时间",
-            "placeholder": "08:00",
+            "placeholder": "06:00,22:20",
             "order": 1,
         },
     )
@@ -209,16 +209,30 @@ class WeatherForecastPlugin(MaiBotPlugin):
 
     # ===== 定时广播 =====
 
+    def _next_broadcast_target(self, now: datetime.datetime) -> datetime.datetime:
+        """从 broadcast_time（支持逗号分隔多个 HH:MM）里取最近的一次。"""
+        raw = (self.config.schedule.broadcast_time or "08:00").strip()
+        parts = [p.strip() for p in raw.replace(";", ",").split(",") if p.strip()]
+        candidates: list[datetime.datetime] = []
+        for part in parts:
+            hour, minute = map(int, part.split(":"))
+            t = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if now >= t:
+                t += datetime.timedelta(days=1)
+            candidates.append(t)
+        if not candidates:
+            t = now.replace(hour=8, minute=0, second=0, microsecond=0)
+            if now >= t:
+                t += datetime.timedelta(days=1)
+            return t
+        return min(candidates)
+
     async def _scheduler_loop(self) -> None:
         await asyncio.sleep(10)
         while True:
             try:
                 now = datetime.datetime.now()
-                time_str = self.config.schedule.broadcast_time
-                hour, minute = map(int, time_str.split(":"))
-                target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                if now >= target:
-                    target += datetime.timedelta(days=1)
+                target = self._next_broadcast_target(now)
                 wait = (target - now).total_seconds()
                 self.ctx.logger.info(f"下次天气播报: {target.strftime('%Y-%m-%d %H:%M')}")
                 await asyncio.sleep(wait)

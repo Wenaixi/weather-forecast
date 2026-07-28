@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ===== 主人本地副本规则（2026-07-28 追加）=====
+# 主人的哲学：本仓库是"远程原始下发本地"的个人副本。
+# 即使 upstream 把这些文件加进 .gitignore，本仓库也要保留真实状态以方便回溯与 diff。
+# 下面用 `!` 否定规则重新纳入（如已被忽略）：
+!config.toml
+!data/
+!cookies-*.json
+
