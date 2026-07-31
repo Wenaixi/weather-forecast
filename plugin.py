@@ -205,26 +205,68 @@ class WeatherForecastPlugin(MaiBotPlugin):
         self.ctx.logger.info("天气预报插件已卸载")
 
     async def on_config_update(self, scope: str, config_data: dict[str, object], version: str) -> None:
-        del scope, config_data, version
+        # 仅当影响调度器/群组开关的段变更时才重启调度 loop，其他段保持热路径零开销。
+        if scope not in ("schedule", "groups", "plugin"):
+            return
+        await self._restart_scheduler(scope, version)
+
+    async def _restart_scheduler(self, scope: str, version: str) -> None:
+        """取消旧调度 task，必要时按当前 config 启动新 task。"""
+        old_task = self._scheduler_task
+        if old_task is not None and not old_task.done():
+            old_task.cancel()
+            try:
+                await old_task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                self.ctx.logger.warning(f"等待旧调度任务退出失败: {e}")
+
+        if self.config.plugin.enabled:
+            self._scheduler_task = asyncio.create_task(self._scheduler_loop())
+        else:
+            self._scheduler_task = None
+
+        self.ctx.logger.info(f"配置已更新（scope={scope} version={version}），调度器已重启")
 
     # ===== 定时广播 =====
 
+    def _parse_broadcast_times(self, raw: str) -> list[tuple[int, int]]:
+        """宽容解析 broadcast_time；非法段单独跳过并警告。
+
+        返回 [(hour, minute), ...]；所有段都坏时返回 []，由调用方按 08:00 fallback。
+        """
+        raw = (raw or "").strip()
+        if not raw:
+            return []
+        parts = [p.strip() for p in raw.replace(";", ",").split(",") if p.strip()]
+        parsed: list[tuple[int, int]] = []
+        for part in parts:
+            try:
+                if part.count(":") != 1:
+                    raise ValueError(f"expected HH:MM, got '{part}'")
+                hour_str, minute_str = part.split(":", 1)
+                hour = int(hour_str)
+                minute = int(minute_str)
+                if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                    raise ValueError(f"hour={hour} minute={minute} out of range")
+                parsed.append((hour, minute))
+            except (ValueError, AttributeError) as e:
+                self.ctx.logger.warning(f"忽略非法播报时间 '{part}': {e}")
+        return parsed
+
     def _next_broadcast_target(self, now: datetime.datetime) -> datetime.datetime:
         """从 broadcast_time（支持逗号分隔多个 HH:MM）里取最近的一次。"""
-        raw = (self.config.schedule.broadcast_time or "08:00").strip()
-        parts = [p.strip() for p in raw.replace(";", ",").split(",") if p.strip()]
+        parsed = self._parse_broadcast_times(self.config.schedule.broadcast_time or "08:00")
+        if not parsed:
+            self.ctx.logger.warning("broadcast_time 无任何合法段，fallback 到 08:00")
+            parsed = [(8, 0)]
         candidates: list[datetime.datetime] = []
-        for part in parts:
-            hour, minute = map(int, part.split(":"))
+        for hour, minute in parsed:
             t = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
             if now >= t:
                 t += datetime.timedelta(days=1)
             candidates.append(t)
-        if not candidates:
-            t = now.replace(hour=8, minute=0, second=0, microsecond=0)
-            if now >= t:
-                t += datetime.timedelta(days=1)
-            return t
         return min(candidates)
 
     async def _scheduler_loop(self) -> None:

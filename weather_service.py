@@ -16,11 +16,36 @@ AMAP_WEATHER_URL = "https://restapi.amap.com/v3/weather/weatherInfo"
 
 
 class WeatherService:
-    """高德地图天气服务封装"""
+    """高德地图天气服务封装
+
+    设计要点：
+    - 复用同一个 ``httpx.AsyncClient`` 实例（连接池复用），避免每次请求建/拆连接。
+    - ``trust_env=False`` 显式禁用环境变量代理；本插件走的是已知域名，主机上的
+      ``HTTP_PROXY`` / ``HTTPS_PROXY`` 不应该把我们的请求劫持到代理上。
+    - 提供 ``aclose()`` / ``async with`` 两种收尾方式，便于插件在 ``on_unload`` 时清理。
+    """
 
     def __init__(self, amap_key: str, timeout: float = 10.0):
         self.amap_key = amap_key
         self.timeout = timeout
+        self._client: Optional[httpx.AsyncClient] = None
+
+    @property
+    def client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self.timeout, trust_env=False)
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+    async def __aenter__(self) -> "WeatherService":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self.aclose()
 
     def is_configured(self) -> bool:
         return bool(self.amap_key) and self.amap_key != "your_amap_key_here"
@@ -33,13 +58,12 @@ class WeatherService:
             "extensions": "base",
         }
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(AMAP_DISTRICT_URL, params=params)
-                data = response.json()
-                if data.get("status") == "1" and data.get("districts"):
-                    return data
-                logger.warning(f"行政区划查询无结果({keyword}): {data.get('info', 'Unknown')}")
-                return None
+            response = await self.client.get(AMAP_DISTRICT_URL, params=params)
+            data = response.json()
+            if data.get("status") == "1" and data.get("districts"):
+                return data
+            logger.warning(f"行政区划查询无结果({keyword}): {data.get('info', 'Unknown')}")
+            return None
         except Exception as e:
             logger.error(f"请求行政区划API失败({keyword}): {e}")
             return None
@@ -79,12 +103,11 @@ class WeatherService:
             "extensions": "all",
         }
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(AMAP_WEATHER_URL, params=params)
-                data = response.json()
-                if data.get("status") == "1" and data.get("forecasts"):
-                    return data["forecasts"][0]
-                return None
+            response = await self.client.get(AMAP_WEATHER_URL, params=params)
+            data = response.json()
+            if data.get("status") == "1" and data.get("forecasts"):
+                return data["forecasts"][0]
+            return None
         except Exception as e:
             logger.error(f"请求天气预报API失败({city_adcode}): {e}")
             return None
@@ -97,12 +120,11 @@ class WeatherService:
             "extensions": "base",
         }
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(AMAP_WEATHER_URL, params=params)
-                data = response.json()
-                if data.get("status") == "1" and data.get("lives"):
-                    return data["lives"][0]
-                return None
+            response = await self.client.get(AMAP_WEATHER_URL, params=params)
+            data = response.json()
+            if data.get("status") == "1" and data.get("lives"):
+                return data["lives"][0]
+            return None
         except Exception as e:
             logger.error(f"请求实时天气API失败({city_adcode}): {e}")
             return None
