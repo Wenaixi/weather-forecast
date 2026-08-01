@@ -166,18 +166,28 @@ class WeatherForecastPluginConfig(PluginConfigBase):
     tool: ToolConfig = Field(default_factory=ToolConfig)
 
 
-def _parse_target_groups(raw: list[str]) -> list[tuple[str, str]]:
-    """解析群聊配置列表，返回 [(group_id, location), ...]"""
+def _parse_target_groups(raw: list[str]) -> list[tuple[str, str, str]]:
+    """解析群聊配置列表，返回 [(group_id, location, group_name), ...]。
+
+    格式：
+      "群号 地点"           — 地点给高德查天气
+      "群号 地点|群名"       — 群名仅标注/日志，不参与查天气
+    """
     results = []
     for line in raw:
         line = line.strip()
         if not line:
             continue
         parts = line.split(None, 1)
-        if len(parts) == 2:
-            results.append((parts[0], parts[1]))
-        elif len(parts) == 1:
-            results.append((parts[0], ""))
+        if len(parts) == 1:
+            results.append((parts[0], "", ""))
+            continue
+        group_id, rest = parts[0], parts[1]
+        if "|" in rest:
+            location, group_name = rest.split("|", 1)
+            results.append((group_id, location.strip(), group_name.strip()))
+        else:
+            results.append((group_id, rest.strip(), ""))
     return results
 
 
@@ -300,12 +310,13 @@ class WeatherForecastPlugin(MaiBotPlugin):
             self.ctx.logger.error("未配置高德地图API密钥")
             return
 
-        location_to_groups: dict[str, list[str]] = {}
-        for group_id, location in groups:
-            location_to_groups.setdefault(location, []).append(group_id)
+        # location -> [(group_id, group_name), ...]；同地点只查一次 API
+        location_to_groups: dict[str, list[tuple[str, str]]] = {}
+        for group_id, location, group_name in groups:
+            location_to_groups.setdefault(location, []).append((group_id, group_name))
 
         broadcast_cache: dict[str, str] = {}
-        for location, group_ids in location_to_groups.items():
+        for location, group_entries in location_to_groups.items():
             try:
                 if location not in broadcast_cache:
                     city_info = await service.resolve_city(location)
@@ -322,18 +333,21 @@ class WeatherForecastPlugin(MaiBotPlugin):
                     broadcast_cache[location] = broadcast
 
                 text = broadcast_cache[location]
-                for group_id in group_ids:
+                for group_id, group_name in group_entries:
                     try:
                         stream = await self.ctx.chat.get_stream_by_group_id(group_id)
                         if not stream:
-                            self.ctx.logger.warning(f"未找到群聊流: {group_id}")
+                            label = f"{group_id}({group_name})" if group_name else group_id
+                            self.ctx.logger.warning(f"未找到群聊流: {label}")
                             continue
                         stream_id = stream.get("stream_id", "") if isinstance(stream, dict) else str(stream)
                         await self.ctx.send.text(text, stream_id)
-                        self.ctx.logger.info(f"天气播报已发送: {group_id} ({location})")
+                        label = f"{group_id}({group_name})" if group_name else group_id
+                        self.ctx.logger.info(f"天气播报已发送: {label} 地点={location}")
                         await asyncio.sleep(2)
                     except Exception as e:
-                        self.ctx.logger.error(f"发送到群 {group_id} 失败: {e}")
+                        label = f"{group_id}({group_name})" if group_name else group_id
+                        self.ctx.logger.error(f"发送到群 {label} 失败: {e}")
             except Exception as e:
                 self.ctx.logger.error(f"处理地点 {location} 播报失败: {e}")
 
