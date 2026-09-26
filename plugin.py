@@ -377,7 +377,8 @@ class WeatherForecastPlugin(MaiBotPlugin):
         model_name = (self.config.broadcast.model_name or "").strip()
         kwargs: dict[str, Any] = {"prompt": prompt}
         if model_name:
-            kwargs["model"] = model_name
+            # MaiBot 1.2.5 起 model 会被宿主当作具体模型名解析，任务名必须走 task_name
+            kwargs["task_name"] = model_name
         result = await self.ctx.llm.generate(**kwargs)
         if not result.get("success"):
             self.ctx.logger.error("LLM生成播报失败")
