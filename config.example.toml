@@ -1,0 +1,29 @@
+# 天气预报插件 whitefox.weather-forecast
+# 福清双群；每天 06:00、22:20 播报（broadcast_time 逗号分隔）
+
+[plugin]
+enabled = true
+config_version = "2.0.0"
+
+[weather]
+amap_key = "YOUR_AMAP_KEY_HERE"
+
+[groups]
+target_groups = [
+  # 格式: "群号 地点|群名" —— 地点给高德查天气，| 后群名仅标注
+  "935350234 福清|福清一中信息社",
+  "974533432 福清|😎生活部一来一个懂生活😈",
+  "1057563035 福清|福清一中第49届自律部招新群",
+]
+
+[schedule]
+broadcast_enabled = true
+broadcast_time = "06:00"
+
+[broadcast]
+max_length = 200
+model_name = "replyer"
+
+[tool]
+enabled = true
+default_days = 3

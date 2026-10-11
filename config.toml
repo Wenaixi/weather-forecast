@@ -6,7 +6,7 @@ enabled = true
 config_version = "2.0.0"
 
 [weather]
-amap_key = "9cd26dd4ebb67e44dde1bba67d0392e7"
+amap_key = "YOUR_AMAP_KEY_HERE"
 
 [groups]
 target_groups = [
