@@ -1,5 +1,13 @@
 # 天气预报（whitefox.weather-forecast）
 
+## 官方上游与版本溯源
+- 官方仓库（Upstream Repository）：https://github.com/whitefox20011120/weather-forecast
+- 官方作者（Author / Maintainer）：whitefox20011120
+- 功能定位：高德天气预报与定时播报插件
+- 本地演进定位：基于官方上游最新版本，融入本地生产环境兼容性定制与稳定性加固。
+- 本地专属定制：本地配置福清地区专属播报，小改调度算法支持双时段（06:00, 22:20）播报。
+
+
 源: whitefox  
 插件 ID: `whitefox.weather-forecast` v2.0.1
 
